@@ -13,11 +13,11 @@ st.set_page_config(page_title="박스오피스 대시보드", page_icon="🎬", 
 st.title("🎬 박스오피스 & 영화 추천 대시보드")
 
 # --------------------------------------------------------
-# 2. 보조 함수들 (날씨, 포스터, 순위변동, 뱃지)
+# 2. 보조 함수들 (날씨, 순위변동, 뱃지)
 # --------------------------------------------------------
 @st.cache_data(ttl=3600)
 def get_today_weather():
-    """현재 서울 날씨를 가져오는 함수 (무료 API)"""
+    """현재 서울 날씨를 가져오는 함수 (회원가입 필요없는 무료 API)"""
     weather_url = "https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=weather_code&timezone=Asia%2FSeoul"
     try:
         res = requests.get(weather_url, timeout=5)
@@ -30,29 +30,14 @@ def get_today_weather():
     except:
         return "알수없음", "❓"
 
-def get_poster_url(movie_nm):
-    """TMDB API로 영화 포스터를 가져오는 함수"""
-    # 비밀 금고에 TMDB_KEY가 있으면 진짜 포스터를, 없으면 임시 이미지를 반환합니다.
-    if "TMDB_KEY" in st.secrets:
-        tmdb_key = st.secrets["TMDB_KEY"]
-        url = f"https://api.themoviedb.org/3/search/movie?api_key={tmdb_key}&query={movie_nm}&language=ko-KR"
-        try:
-            res = requests.get(url, timeout=3).json()
-            if res["results"] and res["results"][0].get("poster_path"):
-                return f"https://image.tmdb.org/t/p/w500{res['results'][0]['poster_path']}"
-        except:
-            pass
-    # 키가 없거나 검색에 실패한 경우의 기본 썸네일
-    return f"https://via.placeholder.com/300x450/444444/FFFFFF?text={movie_nm}"
-
 def get_rank_symbol(inten):
-    """순위 증감을 화살표 기호로 변환"""
+    """순위 증감을 예쁜 화살표 기호로 변환"""
     if inten > 0: return f"▲ {inten}"
     elif inten < 0: return f"▼ {abs(inten)}"
     else: return "-"
 
 def get_milestone_badge(acc):
-    """누적 관객수에 따라 뱃지 부여"""
+    """누적 관객수에 따라 흥행 뱃지 부여"""
     if acc >= 10000000: return "👑 천만돌파!"
     elif acc >= 5000000: return "🔥 500만"
     elif acc >= 1000000: return "🎉 100만"
@@ -97,7 +82,7 @@ if not box_list:
 # --------------------------------------------------------
 df = pd.DataFrame(box_list)
 
-# 숫자형으로 변환 (rankInten 포함)
+# 글자로 온 숫자들을 진짜 숫자로 변환 (계산을 위해)
 for col in ["rank", "rankInten", "audiCnt", "audiAcc", "scrnCnt", "showCnt", "salesShare"]:
     df[col] = pd.to_numeric(df[col])
 
@@ -109,29 +94,35 @@ df["예고편"] = "https://www.youtube.com/results?search_query=영화+" + df["m
 top_movies = df["movieNm"].tolist()
 
 # --------------------------------------------------------
-# 6. 화면 출력 - (1) 날씨 기반 추천
+# 6. 화면 출력 - (1) 날씨 기반 맞춤 영화 추천 (포스터 대신 예쁜 배너 디자인)
 # --------------------------------------------------------
 weather_text, weather_icon = get_today_weather()
 st.divider()
 st.subheader(f"{weather_icon} 오늘의 날씨 ({weather_text}) 맞춤 영화 추천")
 
+# 날씨에 따른 추천 로직
 if weather_text == "맑음":
     rec_movie = top_movies[0]
-    msg = f"화창한 날씨네요! 현재 가장 인기 있는 1위 영화 **'{rec_movie}'**을(를) 추천합니다."
+    msg = "화창한 날씨네요! 현재 극장가 예매율 1위 영화로 활기찬 하루를 보내보세요."
 elif weather_text in ["비", "눈"]:
     rec_movie = top_movies[1] if len(top_movies) > 1 else top_movies[0]
-    msg = f"{weather_text} 오는 날엔 실내 데이트가 최고죠! 관객들의 꾸준한 사랑을 받는 **'{rec_movie}'**을(를) 추천해 드려요."
+    msg = f"{weather_text} 오는 날엔 실내 데이트가 최고죠! 관객들의 꾸준한 사랑을 받는 이 영화를 추천합니다."
 else:
     rec_movie = random.choice(top_movies[2:5]) if len(top_movies) >= 5 else top_movies[0]
-    msg = f"포근한 느낌을 주는 날씨네요. 숨은 재미를 찾아서 **'{rec_movie}'** 한 편 어떠신가요?"
+    msg = "포근한 느낌을 주는 날씨네요. 박스오피스 상위권의 숨은 재미를 찾아보세요!"
 
-col_rec1, col_rec2 = st.columns([1, 4])
-with col_rec1:
-    # 추천 영화 포스터 출력
-    st.image(get_poster_url(rec_movie), use_container_width=True)
-with col_rec2:
-    st.info(msg)
-    st.link_button(f"🎬 '{rec_movie}' 예고편 보러가기", f"https://www.youtube.com/results?search_query=영화+{rec_movie}+예고편")
+# CSS를 활용한 추천 영화 배너 (별도의 이미지 API 없이도 예쁘게 보이도록 디자인)
+st.markdown(f"""
+    <div style='background: linear-gradient(to right, #ff4b4b, #ff7676); padding: 30px; border-radius: 15px; text-align: center; color: white; margin-bottom: 20px;'>
+        <h4 style='margin: 0; font-weight: normal; color: #ffecec;'>{weather_icon} {msg}</h4>
+        <h1 style='margin: 15px 0 0 0; font-size: 40px; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);'>🎬 {rec_movie}</h1>
+    </div>
+""", unsafe_allow_html=True)
+
+# 예고편 버튼을 배너 바로 아래 중앙에 배치
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    st.link_button(f"🎥 '{rec_movie}' 유튜브 예고편 보러가기", f"https://www.youtube.com/results?search_query=영화+{rec_movie}+예고편", use_container_width=True)
 
 st.divider()
 
