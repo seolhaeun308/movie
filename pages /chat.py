@@ -1,83 +1,54 @@
 import streamlit as st
 from openai import OpenAI
 
-# 페이지 기본 설정
-st.set_page_config(
-    page_title="정보 선생님 AI 채팅",
-    page_icon="🤖",
-    layout="centered"
-)
+# 페이지 기본 설정 (이 파일만의 설정 — main.py에는 영향 없음)
+st.set_page_config(page_title="AI 정보 선생님", page_icon="🤖")
+st.title("🤖 AI 정보 선생님")
 
-st.title("🤖 친절한 정보 선생님")
-st.write("궁금한 점이 있다면 무엇이든 물어보세요!")
-
-# 1. 비밀 금고(st.secrets)에서 Gemini API 키 불러오기
-try:
-    gemini_api_key = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    st.error("비밀 금고(st.secrets)에 GEMINI_API_KEY가 설정되어 있지 않습니다. 설정을 확인해 주세요.")
-    st.stop()
-
-# 2. OpenAI 라이브러리를 활용해 Gemini API 클라이언트 설정
-# 제공해주신 구글 엔드포인트와 gemini-2.5-flash 모델명을 그대로 사용합니다.
+# 비밀 금고(secrets)에서 API 키를 꺼내 접속 준비
 client = OpenAI(
-    api_key=gemini_api_key,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key=st.secrets["GEMINI_API_KEY"],
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 
-# 3. 이전 대화 기억(세션 상태) 초기화
+# AI의 성격 (화면에는 띄우지 않고 요청에만 함께 보낸다)
+SYSTEM_PROMPT = (
+    "너는 중고등학생에게 설명하는 친절한 정보 선생님이야. "
+    "어려운 말은 쉬운 말로 바꿔 주고, 반드시 순수 한국어로만 답해"
+)
+
+# 대화 기록이 없으면 처음 한 번만 만들어 둔다
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-# 4. 화면에 이전 대화 기록(말풍선)을 순서대로 다시 출력하기
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+# 지금까지의 대화를 말풍선으로 다시 그리기 (성격 문장은 숨김)
+for msg in st.session_state.messages:
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-# 5. 사용자가 채팅 입력창에 메시지를 적었을 때 동작
-if prompt := st.chat_input("선생님께 질문을 입력하세요..."):
-    
-    # 사용자가 보낸 메시지를 대화 기록에 저장
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # 화면에 사용자 메시지 말풍선 표시
+# 채팅 입력창
+user_input = st.chat_input("궁금한 것을 물어보세요!")
+
+if user_input:
+    # 보낸 말을 기록에 넣고 화면에도 그리기
+    st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(user_input)
 
-    # 6. AI의 성격(시스템 프롬프트) 설정 및 이전 대화 내용 합치기
-    system_prompt = {
-        "role": "system",
-        "content": "너는 중고등학생에게 설명하는 친절한 정보 선생님이야. 어려운 말은 쉬운 말로 바꿔 주고, 반드시 순수 한국어로만 답해"
-    }
-    
-    # 시스템 성격과 지금까지의 대화 목록을 합쳐서 API에 전달
-    full_messages = [system_prompt] + st.session_state.messages
-
-    # 7. AI의 답변을 실시간 스트리밍 형태로 받아와 말풍선으로 출력
+    # AI 답 받아오기 (실패하면 빨간 오류 화면 대신 안내 문구)
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
         try:
-            # 스트리밍 활성화(stream=True)
-            response = client.chat.completions.create(
-                model="gemini-2.5-flash",
-                messages=full_messages,
-                stream=True,
+            stream = client.chat.completions.create(
+                model="gemini-3.5-flash-lite",       # 모델 이름은 그대로 유지
+                messages=st.session_state.messages,  # 대화 전체를 함께 보내 기억 유지
+                stream=True,                         # 글자가 실시간으로 흐르게
             )
-            
-            # 글자가 실시간으로 흘러나오도록 조각(chunk)을 이어붙임
-            for chunk in response:
-                if chunk.choices[0].delta.content is not None:
-                    full_response += chunk.choices[0].delta.content
-                    message_placeholder.markdown(full_response + "▌")
-            
-            # 최종 완성된 답변 출력 (커서 제거)
-            message_placeholder.markdown(full_response)
-            
-            # AI의 답변을 대화 기록에 저장
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            
-        except Exception as e:
-            # 8. 요청이 실패할 경우 빨간 오류 화면 대신 친절한 안내 문구 표시
-            message_placeholder.error("죄송해요, 답변을 가져오는 중에 문제가 생겼어요. 잠시 후에 다시 시도해 주세요!")
+            answer = st.write_stream(
+                chunk.choices[0].delta.content or ""
+                for chunk in stream if chunk.choices
+            )
+            # AI 답도 기록에 저장 (다음 질문에 이어서 사용)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+        except Exception:
+            st.error("응답을 받지 못했습니다. 잠시 후 다시 보내 주세요.")
